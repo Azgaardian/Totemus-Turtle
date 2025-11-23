@@ -15,3 +15,5 @@ If i can figure them our future additions will be:
 
 
 Dependancies: Ace, (I have a copy to clone if you need it)
+
+To install, please rename the folder to totemus
