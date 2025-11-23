@@ -173,7 +173,10 @@ Totemus = AceAddonClass:new({
 		self.spells.timedname = {}
 		self.spells.timeddisplay = {}
 		self.spells.timedrank = {}
-
+		self.spells.menuslot = {}
+		self.spells.bufftype = {}
+		self.spells.bufftypebyspell = {}
+		
 		for id = 1, 480 do
 			rankedSpell = nil
 			spellName, spellRank = GetSpellName(id, "spell")
@@ -186,16 +189,18 @@ Totemus = AceAddonClass:new({
 				else 
 					spellTotal = spellName
 				end
-				--self:SendChatMessage(string.format( spellname ) )
+				--self:SendChatMessage(string.format( s ) )
 				if( TOTEMUS_CONST.Spell[spellName] ) then
 					self.spells.normal[TOTEMUS_CONST.Spell[spellName]] = id
+					self.spells.menuslot[TOTEMUS_CONST.Spell[spellName]] = 4
 					
 				end
 --				self:Msg("Spell: ##"..spellTotal.."##")
 				if( TOTEMUS_CONST.RankedSpell[spellTotal] ) then
-					local thistag, thislevel
+					local thistag, thislevel, thisbufftype
 					thistag = TOTEMUS_CONST.RankedSpell[spellTotal][1]
 					thislevel = TOTEMUS_CONST.RankedSpell[spellTotal][2]
+					thisbufftype = TOTEMUS_CONST.RankedSpell[spellTotal][3]
 					if( not spellLevel[thistag] or thislevel > spellLevel[thistag] ) then
 						self.spells.normal[thistag] = id
 						spellLevel[thistag] = thislevel
@@ -213,14 +218,19 @@ Totemus = AceAddonClass:new({
 				end
 
 				if( rankedSpell ) then
-					local thistag, thislevel, thisduration
+				--self:Msg("im a ranked spell" )
+					local thistag, thislevel, thisbufftype, thisduration
 					thistag = TOTEMUS_CONST.RankedSpell[rankedSpell][1]
 					thislevel = TOTEMUS_CONST.RankedSpell[rankedSpell][2]
+					thisbufftype = TOTEMUS_CONST.RankedSpell[rankedSpell][3]
+				self.spells.bufftypebyspell[strlower(rankedSpell)] = thisbufftype
+					--self:Msg(TOTEMUS_CONST.RankedSpell[rankedSpell][3] )
 					
---						self:Msg ("Registered t:")
+						--self:Msg ("Registered t:")
 					if( not spellLevel[thistag] or thislevel > spellLevel[thistag] ) then
 							self.spells.normal[thistag] = id
 							spellLevel[thistag] = thislevel
+							self.spells.bufftype[thistag] = thisbufftype
 							if( thistag == "MOUNT" ) then
 								self.mounttype = thislevel
 							end
@@ -248,6 +258,9 @@ Totemus = AceAddonClass:new({
 					self.spells.timed[strlower(spellTotal)] = TOTEMUS_CONST.TimedSpell[spellName][maxrank]
 					self.spells.timeddisplay[strlower(spellTotal)] = spellName
 					self.spells.timedrank[id] = maxrank
+					
+					--self:Msg("im a timed spell" )
+					--self:SendChatMessage(string.format( self.spells.bufftype ) )
 					
 				end
 			end
@@ -302,41 +315,39 @@ Totemus = AceAddonClass:new({
 			-- so ignore this cast.
 			return
 		end
-	
+
 		-- We reset the current spellcast whatever happens next.
 		self.Compost:Erase( self.currentspell )
 
-		-- Not a valid timed spell? don't do a thing
+		-- Only track spells we actually time
 		if( not self.spells.timed[spell] ) then
-			self.currentspell.state = TOTEMUS_CONST.State.Cast
-		    self.currentspell.target = "player"
-		    self.currentspell.spell = spell
-			self.currentspell.spelldisplay = self.spells.timeddisplay[spell]
-			self.currentspell.duration = self.spells.timed[spell]
-		
-	    end
-
-		-- If we don't have a target this spell is not worth monitoring for our purposes
-		--local target = self:GetTargetInfo()
-		local target = self
-		if( not target ) then 
-		-- Valid Spell, Valid target
-		self.currentspell.state = TOTEMUS_CONST.State.Cast
-		self.currentspell.target = target
-		self.currentspell.spell = spell
-		self.currentspell.spelldisplay = self.spells.timeddisplay[spell]
-		self.currentspell.duration = self.spells.timed[spell]
-
-		else
-		-- Valid Spell, Valid target
-		self.currentspell.state = TOTEMUS_CONST.State.Cast
-		self.currentspell.target = target
-		self.currentspell.spell = spell
-		self.currentspell.spelldisplay = self.spells.timeddisplay[spell]
-		self.currentspell.duration = self.spells.timed[spell]
+			return
 		end
-		 --self:Msg( "Registered t:"..self.currentspell.target.Display.." s: "..self.currentspell.spell.." d: "..self.currentspell.duration )
+
+		-- Determine element / "menu slot" from bufftypebyspell if possible
+		local bufftype = nil
+		if self.spells.bufftypebyspell and self.spells.bufftypebyspell[spell] then
+			bufftype = self.spells.bufftypebyspell[spell]
+		end
+
+		self.bufftype = bufftype or self.bufftype or 0
+		self.currentspell.menuslot = bufftype or self.currentspell.menuslot
+
+		-- Build a minimal target (we mostly care about timers per element)
+		local playerName = UnitName("player") or "player"
+		local target = {
+			Name    = playerName,
+			Id      = playerName,
+			Display = playerName,
+		}
+
+		self.currentspell.state        = TOTEMUS_CONST.State.Cast
+		self.currentspell.target       = target
+		self.currentspell.spell        = spell
+		self.currentspell.spelldisplay = self.spells.timeddisplay[spell] or spell
+		self.currentspell.duration     = self.spells.timed[spell]
 	end,
+
 
 	ClearTimers = function( self )
 		local i,j
@@ -366,58 +377,54 @@ Totemus = AceAddonClass:new({
 	end,
 
 	TimerAddSpell = function( self )
-		local mindex = self.currentspell.target.Id
-		local sindex = self.currentspell.spelldisplay
+		-- Prefer menuslot set in RegisterSpellCast; fall back to bufftype
+		local mindex = self.currentspell.menuslot or self.bufftype
+		local sindex = self.currentspell.spelldisplay or self.currentspell.spell
+		local duration = self.currentspell.duration
+
+		-- If we still don't have enough info, don't create a timer
+		if not mindex or not sindex or not duration then
+			return
+		end
+
+		--self:Msg("AddSpell menuslot "..mindex.." spell "..sindex)
+
 		if( self.timers[mindex] ) then
 			if( self.timers[mindex][sindex] ) then
-				-- self:Msg("AddSpell Updating "..mindex..sindex )
+				-- Update existing timer
 				self.currentspell.state = TOTEMUS_CONST.State.Update
 				self.currentspell.oldduration = Timex:ScheduleCheck("Totemus Timers "..mindex..sindex, TRUE)
 				Timex:DeleteSchedule("Totemus Timers "..mindex..sindex )
-				Timex:AddSchedule("Totemus Timers "..mindex..sindex, self.currentspell.duration, nil, nil, Totemus.TimerDeleteSpell, Totemus, mindex, sindex )
-				self.timers[mindex][sindex]["duration"] = self.currentspell.duration
+				Timex:AddSchedule("Totemus Timers "..mindex..sindex, duration, nil, nil, Totemus.TimerDeleteSpell, Totemus, mindex, sindex )
+				self.timers[mindex][sindex]["duration"] = duration
 			else
-				-- self:Msg("AddSpell Newspell "..mindex..sindex )
+				-- New spell in existing element column
 				self.currentspell.state = TOTEMUS_CONST.State.NewSpell
 				self.timers[mindex][sindex] = {}
-				self.timers[mindex][sindex]["duration"] = self.currentspell.duration
+				self.timers[mindex][sindex]["duration"] = duration
 				self.timers[mindex]["nr"] = self.timers[mindex]["nr"] + 1
-				Timex:AddSchedule("Totemus Timers "..mindex..sindex, self.currentspell.duration, nil, nil, Totemus.TimerDeleteSpell, Totemus, mindex, sindex )
+				Timex:AddSchedule("Totemus Timers "..mindex..sindex, duration, nil, nil, Totemus.TimerDeleteSpell, Totemus, mindex, sindex )
 			end
 		else
-			-- self:Msg("AddSpell Newmonster&spell "..mindex..sindex )
-			self.currentspell.state = TOTEMUS_CONST.State.NewMonsterNewSpell
+			-- First spell in this element column
+			self.currentspell.state = TOTEMUS_CONST.State.NewSpell
 			self.timers[mindex] = {}
 			self.timers[mindex]["nr"] = 0
 			self.timers[mindex]["name"] = self.currentspell.spell
 			self.timers[mindex][sindex] = {}
-			self.timers[mindex][sindex]["duration"] = self.currentspell.duration
+			self.timers[mindex][sindex]["duration"] = duration
 			self.timers[mindex]["nr"] = self.timers[mindex]["nr"] + 1
-			Timex:AddSchedule("Totemus Timers "..mindex..sindex, self.currentspell.duration, nil, nil, Totemus.TimerDeleteSpell, Totemus, mindex, sindex )
-			
+			Timex:AddSchedule("Totemus Timers "..mindex..sindex, duration, nil, nil, Totemus.TimerDeleteSpell, Totemus, mindex, sindex )
 		end
 	end,
-	
+
+
 	TimerAddBuff = function( self )
 		local mindex = self.bufftype
 		local sindex = self.currentspell.spelldisplay
 		local spell_duration = self.currentspell.duration
 		
-		if( self.shieldtype == "LS" ) then 
-			sindex = "Lightning Shield" 
-			self.currentspell.duration = 600
-		end
 		
-		if( self.shieldtype == "WS" ) then 
-			sindex = "Water Shield" 
-			self.currentspell.duration = 600
-		end
-		if( self.shieldtype == "ES" ) then 
-			sindex = "Earth Shield" 
-			self.currentspell.duration = 600
-		end
-
-
 		if( self.timers[mindex] ) then
 			if( self.timers[mindex][sindex] ) then
 				-- self:Msg("AddSpell Updating "..mindex..sindex )
@@ -441,7 +448,7 @@ Totemus = AceAddonClass:new({
 				--self:SendChatMessage(string.format( self.timers[mindex][sindex]["duration"] ) )
 			end
 		else
-			-- self:Msg("AddSpell Newmonster&spell "..mindex..sindex )
+			 --self:Msg("AddSpell Newmonster&spell "..mindex..sindex )
 			self.currentspell.state = TOTEMUS_CONST.State.NewSpell
 			self.timers[mindex] = {}
 			self.timers[mindex]["nr"] = 0
@@ -452,11 +459,12 @@ Totemus = AceAddonClass:new({
 			Timex:AddSchedule("Totemus Timers "..mindex..sindex, self.currentspell.duration, nil, nil, Totemus.TimerDeleteSpell, Totemus, mindex, sindex )
 	        --self:SendChatMessage(string.format( sindex) )
 		end 
-		self.shieldtype = ""
+		
+	
 	end,
 	
 	TimerRollback = function( self )
-		local mindex = self.currentspell.target.Id
+		local mindex = self.currentspell.menuslot or self.bufftype
 		local sindex = self.currentspell.spelldisplay
 		local i
 		if( not mindex or not sindex ) then return end
@@ -518,7 +526,7 @@ Totemus = AceAddonClass:new({
 	castfiretotemonenter = function( self, spell_name,frame )
 		GameTooltip:Hide()
         GameTooltip:SetOwner(frame, "TOP_RIGHT")
-        GameTooltip:AddLine(spell_name)
+			GameTooltip:AddLine(spell_name)
         GameTooltip:Show()
 	end,
 	castfiretotemonleave = function( self, spell_name,frame )
@@ -637,26 +645,15 @@ Totemus = AceAddonClass:new({
 	
 	castshield = function( self, spellid, Spellbooktab )
 		self.bufftype = 5
-		if( self.spells.normal["LS"] ) then
-			CastSpellByName( "Lightning Shield()" )
-			self.shieldtype = "LS"
-			self:TimerAddBuff(spellid)
-		end
-		if( self.spells.normal["WS"] ) then
-			CastSpellByName( "Water Shield()" )
-			self.shieldtype = "WS"
-			self:TimerAddBuff(spellid)
-		end
-		if( self.spells.normal["ES"] ) then
-			CastSpellByName( "Earth Shield()" )
-			self.shieldtype = "ES"
-			self:TimerAddBuff(spellid)
-		end
-					
+		CastSpell( spellid, BOOKTYPE_SPELL )
+		self:TimerAddBuff(spellid)
+		
 		if( self:GetOpt("closeonclick") ) then
 			self:ShieldBuffClicked()
 		end
-			self:ShieldBuffClicked()
+		self:ShieldBuffClicked()
+		
+
 
 	end,
 
@@ -1345,8 +1342,8 @@ Totemus = AceAddonClass:new({
 		self.frames.ls:SetHighlightTexture( "Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight" )
 		self.frames.ls:SetPoint("TOPRIGHT", self.frames.shieldbuffmenu, "TOPRIGHT", stx, 0 )
 		self.frames.ls:SetScript("OnClick", function() this.owner:castshield( this.owner.spells.normal["LS"] ) end )		
-		self.frames.ls:SetScript("OnEnter", function() this.owner:castshieldonenter("Lighting",self.frames.shieldbuff) end)
-		self.frames.ls:SetScript("OnLeave", function() this.owner:castshieldonleave("Lighting",self.frames.shieldbuff) end)
+		self.frames.ls:SetScript("OnEnter", function() this.owner:castshieldonenter("Lighting Sheild",self.frames.shieldbuff) end)
+		self.frames.ls:SetScript("OnLeave", function() this.owner:castshieldonleave("Lighting Shield",self.frames.shieldbuff) end)
 
 		tmp_x = stx
 		if( self.spells.normal["WS"] ) then  stx = tmp_x + 32 end
@@ -1359,8 +1356,8 @@ Totemus = AceAddonClass:new({
 		self.frames.ws:SetHighlightTexture( "Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight" )
 		self.frames.ws:SetPoint("TOPRIGHT", self.frames.shieldbuffmenu, "TOPRIGHT", stx, 0 )
 		self.frames.ws:SetScript("OnClick", function() this.owner:castshield( this.owner.spells.normal["WS"] ) end )		
-		self.frames.ws:SetScript("OnEnter", function() this.owner:castshieldonenter("Water",self.frames.shieldbuff) end)
-		self.frames.ws:SetScript("OnLeave", function() this.owner:castshieldonleave("Water",self.frames.shieldbuff) end)
+		self.frames.ws:SetScript("OnEnter", function() this.owner:castshieldonenter("Water Shield",self.frames.shieldbuff) end)
+		self.frames.ws:SetScript("OnLeave", function() this.owner:castshieldonleave("Water Shield",self.frames.shieldbuff) end)
 
 		tmp_x = stx
 		if( self.spells.normal["ES"] ) then  stx = tmp_x + 32 end
@@ -1929,7 +1926,7 @@ Totemus = AceAddonClass:new({
 	end,
 
 	SPELLCAST_INTERRUPTED = function( self )
-		-- self:Msg("SPELLCAST_INTERRUPTED" )
+		 self:Msg("SPELLCAST_INTERRUPTED" )
 		if( self.currentspell.state and self.currentspell.state > TOTEMUS_CONST.State.Stop ) then
 			self:TimerRollback()
 		end
@@ -2227,6 +2224,7 @@ Totemus = AceAddonClass:new({
 	
 	
 })
+
 
 ----------------------------------
 --			Load this bitch up!			--

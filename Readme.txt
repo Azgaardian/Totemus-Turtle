@@ -15,12 +15,3 @@ If i can figure them our future additions will be:
 
 
 Dependancies: Ace, (I have a copy to clone if you need it)
-
-Blue/Turquois/Orange/Rose/Violet/X Textures are curtsey of Eliah, from
-EU-Ner'zhul server and Necrosis LDC. Credits go to them.
-
-CHANGELOG:
-
-Version 0.1
-- Got it to work
-- Basic functionality 
